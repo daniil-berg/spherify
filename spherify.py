@@ -61,6 +61,10 @@ def handle_arguments(**kwargs) -> None:
     with Image.open(image_path) as img:
         log.info(f"Image of size {img.width} x {img.height} pixels loaded")
         snap_w, snap_h = kwargs[SNAPSHOT_WIDTH], kwargs[SNAPSHOT_HEIGHT]
+        # Create a list of commandline arguments to launch the Julia subprocess,
+        # the first being the Julia binary, the second being the actual script,
+        # and the rest being the required arguments for that script, i.e.
+        # image size, center, radius, density, and snapshot size.
         args = [
             JULIA_COMMAND,
             str(THIS_PATH.with_suffix('.jl')),
@@ -71,12 +75,17 @@ def handle_arguments(**kwargs) -> None:
             f'{snap_w},{snap_h}'
         ]
         log.info(f"Launching subprocess: `{' '.join(args)}`")
+        # Here we pass the image bytes to the subprocess stdin, and also capture
+        # its stdout after it is finished; if errors occur in the subprocess
+        # i.e. the exit code is not 0, setting `check=True` will cause an
+        # exception to be raised immediately afterwards.
         completed_proc = run(args, input=img.tobytes(), stdout=PIPE, check=True)
     # TODO: The following line is just for testing purposes!
     result = Image.frombytes('RGBA', img.size, completed_proc.stdout)
     # result = Image.frombytes('RGBA', (snap_w, snap_h), completed_proc.stdout)
     log.info(f"Received {len(completed_proc.stdout)} bytes from the subprocess "
              f"and constructed a {snap_w} x {snap_h} pixel image from them")
+    # Now all that is left is to decide how to proceed with the resulting image:
     out_path = kwargs[OUTPUT_FILE]
     if out_path is not None:
         log.info(f"Saving resulting image to `{out_path}`...")

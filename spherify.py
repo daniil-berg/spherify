@@ -12,8 +12,6 @@ LOG_FORMAT = '%(message)s'
 
 THIS_PATH = Path(__file__)
 
-JULIA_COMMAND = 'julia'
-
 # Without this, some PNG files could not be read for some strange reason:
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -30,6 +28,7 @@ RADIUS, DEFAULT_RADIUS = 'radius', 1.0
 SAMPLING_DENSITY, DEFAULT_SAMPLING_DENSITY = 'sampling_density', 1
 SNAPSHOT_WIDTH, DEFAULT_SNAPSHOT_WIDTH = 'snapshot_width', 500
 SNAPSHOT_HEIGHT, DEFAULT_SNAPSHOT_HEIGHT = 'snapshot_height', 500
+JULIA_BINARY, DEFAULT_JULIA_BINARY = 'julia_binary', 'julia'
 VERBOSE = 'verbose'
 
 
@@ -69,7 +68,7 @@ def handle_arguments(**kwargs) -> None:
     # and the rest being the required arguments for that script, i.e.
     # image size, center, radius, density, and snapshot size.
     args = [
-        JULIA_COMMAND,
+        kwargs[JULIA_BINARY],
         str(THIS_PATH.with_suffix('.jl')),
         f'{img.width},{img.height}',
         ','.join(str(x) for x in kwargs[CENTER_POINT]),
@@ -171,6 +170,14 @@ def main() -> None:
         default=DEFAULT_SNAPSHOT_HEIGHT,
         help=f"Specifies the height of the desired snapshot in pixels. "
              f"Defaults to {DEFAULT_SNAPSHOT_HEIGHT}."
+    )
+    parser.add_argument(
+        '-J', '--' + JULIA_BINARY.replace('_', '-'),
+        default=DEFAULT_JULIA_BINARY,
+        help=f"Specifies the Julia executable/command in the current "
+             f"environment or the path to the Julia binary. Assuming it to be "
+             f"located inside a directory included in the `PATH` environment "
+             f"variable, the default is simply `{DEFAULT_JULIA_BINARY}`."
     )
     parser.add_argument(
         '-v', '--' + VERBOSE,

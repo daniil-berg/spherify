@@ -17,6 +17,8 @@ JULIA_COMMAND = 'julia'
 # Without this, some PNG files could not be read for some strange reason:
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+IMAGE_MODE = 'RGBA'
+
 DIMENSIONS = 3
 
 # CLI parameters
@@ -58,30 +60,31 @@ def handle_arguments(**kwargs) -> None:
     if not image_path.is_file():
         raise FileNotFoundError(f"No file found at {image_path}")
     log.info(f"Opening `{image_path}` ({image_path.stat().st_size} bytes)")
-    with Image.open(image_path) as img:
-        log.info(f"Image of size {img.width} x {img.height} pixels loaded")
-        snap_w, snap_h = kwargs[SNAPSHOT_WIDTH], kwargs[SNAPSHOT_HEIGHT]
-        # Create a list of commandline arguments to launch the Julia subprocess,
-        # the first being the Julia binary, the second being the actual script,
-        # and the rest being the required arguments for that script, i.e.
-        # image size, center, radius, density, and snapshot size.
-        args = [
-            JULIA_COMMAND,
-            str(THIS_PATH.with_suffix('.jl')),
-            f'{img.width},{img.height}',
-            ','.join(str(x) for x in kwargs[CENTER_POINT]),
-            str(kwargs[RADIUS]),
-            str(kwargs[SAMPLING_DENSITY]),
-            f'{snap_w},{snap_h}'
-        ]
-        log.info(f"Launching subprocess: `{' '.join(args)}`")
-        # Here we pass the image bytes to the subprocess stdin, and also capture
-        # its stdout after it is finished; if errors occur in the subprocess
-        # i.e. the exit code is not 0, setting `check=True` will cause an
-        # exception to be raised immediately afterwards.
-        completed_proc = run(args, input=img.tobytes(), stdout=PIPE, check=True)
+    with open(image_path, 'rb') as f:
+        img = Image.open(f).convert(IMAGE_MODE)
+    log.info(f"Image of size {img.width} x {img.height} pixels loaded")
+    snap_w, snap_h = kwargs[SNAPSHOT_WIDTH], kwargs[SNAPSHOT_HEIGHT]
+    # Create a list of commandline arguments to launch the Julia subprocess,
+    # the first being the Julia binary, the second being the actual script,
+    # and the rest being the required arguments for that script, i.e.
+    # image size, center, radius, density, and snapshot size.
+    args = [
+        JULIA_COMMAND,
+        str(THIS_PATH.with_suffix('.jl')),
+        f'{img.width},{img.height}',
+        ','.join(str(x) for x in kwargs[CENTER_POINT]),
+        str(kwargs[RADIUS]),
+        str(kwargs[SAMPLING_DENSITY]),
+        f'{snap_w},{snap_h}'
+    ]
+    log.info(f"Launching subprocess: `{' '.join(args)}`")
+    # Here we pass the image bytes to the subprocess stdin, and also capture
+    # its stdout after it is finished; if errors occur in the subprocess
+    # i.e. the exit code is not 0, setting `check=True` will cause an
+    # exception to be raised immediately afterwards.
+    completed_proc = run(args, input=img.tobytes(), stdout=PIPE, check=True)
     # TODO: The following line is just for testing purposes!
-    result = Image.frombytes('RGBA', img.size, completed_proc.stdout)
+    result = Image.frombytes(IMAGE_MODE, img.size, completed_proc.stdout)
     # result = Image.frombytes('RGBA', (snap_w, snap_h), completed_proc.stdout)
     log.info(f"Received {len(completed_proc.stdout)} bytes from the subprocess "
              f"and constructed a {snap_w} x {snap_h} pixel image from them")

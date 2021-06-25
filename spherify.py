@@ -55,6 +55,9 @@ def handle_arguments(**kwargs) -> None:
     # to do, is set the log-level low enough, if we want the messages to appear,
     # or high enough, if we want to silence them.
     logConfig(level=log_level, format=LOG_FORMAT)
+    out_path, display = kwargs[OUTPUT_FILE], not kwargs[NO_DISPLAY]
+    if not display and out_path is None:
+        print("Warning: The results will be neither displayed nor saved...")
     image_path = kwargs[INPUT_IMAGE]
     if not image_path.is_file():
         raise FileNotFoundError(f"No file found at {image_path}")
@@ -88,12 +91,11 @@ def handle_arguments(**kwargs) -> None:
     log.info(f"Received {len(completed_proc.stdout)} bytes from the subprocess "
              f"and constructed a {snap_w} x {snap_h} pixel image from them")
     # Now all that is left is to decide how to proceed with the resulting image:
-    out_path = kwargs[OUTPUT_FILE]
     if out_path is not None:
         log.info(f"Saving resulting image to `{out_path}`...")
         result.save(out_path)
         log.info("Image saved successfully")
-    if not kwargs[NO_DISPLAY]:
+    if display:
         result.show()
 
 

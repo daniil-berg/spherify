@@ -1,10 +1,11 @@
-from logging import getLogger, INFO, CRITICAL, basicConfig as logConfig
-from typing import Tuple
+from logging import getLogger, INFO, WARNING, basicConfig as logConfig
+from typing import Tuple, Optional
 from argparse import ArgumentParser
 from pathlib import Path
 from subprocess import run, PIPE
 
-from PIL import Image, ImageFile
+from PIL import ImageFile, UnidentifiedImageError
+from PIL.Image import Image, open as img_from_file, frombytes as img_from_bytes
 
 
 log = getLogger()  # simply initialize the root logger
@@ -20,8 +21,9 @@ IMAGE_MODE = 'RGBA'
 DIMENSIONS = 3
 
 # CLI parameters
-INPUT_IMAGE = 'image_path'
-OUTPUT_FILE = 'output_file'
+INPUT_PATH = 'image_path'
+SAVE_DIRECTORY = 'save_directory'
+OUTPUT_FILE_PREFIX, DEFAULT_OUTPUT_FILE_PREFIX = 'output_file_prefix', 'sph_'
 NO_DISPLAY = 'no_display'
 CENTER_POINT, DEFAULT_CENTER_POINT = 'center_point', '0,0,0'
 RADIUS, DEFAULT_RADIUS = 'radius', 1.0
@@ -34,11 +36,51 @@ VERBOSE = 'verbose'
 
 def handle_arguments(**kwargs) -> None:
     """
-    Handle CLI input provided as keyword arguments and call all other functions.
+    Handle CLI input provided as keyword arguments and call main functions.
+
+    By default, the root logger uses the stdout stream handler, so all we need
+    to do, is set the log-level low enough, if we want the messages to appear,
+    or high enough, if we want to silence them.
+    """
+    log_level = INFO if kwargs[VERBOSE] else WARNING
+    logConfig(level=log_level, format=LOG_FORMAT)
+    save_dir, display = kwargs[SAVE_DIRECTORY], not kwargs[NO_DISPLAY]
+    if not display and save_dir is None:
+        log.warning("The results will be neither displayed nor saved...")
+    for path in kwargs[INPUT_PATH]:
+        files = list(path.iterdir()) if path.is_dir() else [path]
+        for file in files:
+            if file.is_dir():
+                continue
+            result = load_and_process(
+                image_path=file,
+                julia=kwargs[JULIA_BINARY],
+                center_point=kwargs[CENTER_POINT],
+                radius=kwargs[RADIUS],
+                sampling_density=kwargs[SAMPLING_DENSITY],
+                snap_w=kwargs[SNAPSHOT_WIDTH],
+                snap_h=kwargs[SNAPSHOT_HEIGHT]
+            )
+            if result is None:
+                continue
+            # Decide how to proceed with the resulting image:
+            if save_dir is not None:
+                out = Path(save_dir, kwargs[OUTPUT_FILE_PREFIX] + file.name)
+                log.info(f"Saving resulting image to `{out}`...")
+                result.save(out)
+                log.info("Image saved successfully")
+            if display:
+                result.show()
+
+
+def load_and_process(image_path: Path, julia: str,
+                     center_point: Tuple[float],
+                     radius: float, sampling_density: int,
+                     snap_w: int, snap_h: int) -> Optional[Image]:
+    """
     Reads the image file into memory, calls the Julia program to perform the
-    necessary calculations passing the image data to its standard input,
-    reads its standard output to construct the resulting transformed image,
-    and then displays and/or saves that result.
+    necessary calculations passing the image data to its standard input, and
+    reads its standard output to construct the resulting transformed image.
 
     Image data is passed to and from the Julia subprocess in binary format since
     this appears to be the most efficient way possible; the `PIL.Image` class
@@ -49,34 +91,30 @@ def handle_arguments(**kwargs) -> None:
     The stdout of the Julia subprocess is captured and an `Image` object is then
     constructed again from the raw bytes received, which are assumed to again
     be a multiple of 4 with every 4 bytes representing one RGBA pixel.
+    This `Image` object is returned.
     """
-    log_level = INFO if kwargs[VERBOSE] else CRITICAL
-    # By default, the root logger uses the stdout stream handler, so all we need
-    # to do, is set the log-level low enough, if we want the messages to appear,
-    # or high enough, if we want to silence them.
-    logConfig(level=log_level, format=LOG_FORMAT)
-    out_path, display = kwargs[OUTPUT_FILE], not kwargs[NO_DISPLAY]
-    if not display and out_path is None:
-        print("Warning: The results will be neither displayed nor saved...")
-    image_path = kwargs[INPUT_IMAGE]
-    if not image_path.is_file():
-        raise FileNotFoundError(f"No file found at {image_path}")
     log.info(f"Opening `{image_path}` ({image_path.stat().st_size} bytes)")
-    with open(image_path, 'rb') as f:
-        img = Image.open(f).convert(IMAGE_MODE)
+    try:
+        with open(image_path, 'rb') as f:
+            img = img_from_file(f).convert(IMAGE_MODE)
+    except PermissionError:
+        log.error(f"No read permissions for file `{image_path}`; skipping...")
+        return
+    except UnidentifiedImageError:
+        log.warning(f"Could not identify image `{image_path}`; skipping...")
+        return
     log.info(f"Image of size {img.width} x {img.height} pixels loaded")
-    snap_w, snap_h = kwargs[SNAPSHOT_WIDTH], kwargs[SNAPSHOT_HEIGHT]
     # Create a list of commandline arguments to launch the Julia subprocess,
     # the first being the Julia binary, the second being the actual script,
     # and the rest being the required arguments for that script, i.e.
     # image size, center, radius, density, and snapshot size.
     args = [
-        kwargs[JULIA_BINARY],
+        julia,
         str(THIS_PATH.with_suffix('.jl')),
         f'{img.width},{img.height}',
-        ','.join(str(x) for x in kwargs[CENTER_POINT]),
-        str(kwargs[RADIUS]),
-        str(kwargs[SAMPLING_DENSITY]),
+        ','.join(str(x) for x in center_point),
+        str(radius),
+        str(sampling_density),
         f'{snap_w},{snap_h}'
     ]
     log.info(f"Launching subprocess: `{' '.join(args)}`")
@@ -84,19 +122,12 @@ def handle_arguments(**kwargs) -> None:
     # its stdout after it is finished; if errors occur in the subprocess
     # i.e. the exit code is not 0, setting `check=True` will cause an
     # exception to be raised immediately afterwards.
-    completed_proc = run(args, input=img.tobytes(), stdout=PIPE, check=True)
-    # TODO: The following line is just for testing purposes!
-    result = Image.frombytes(IMAGE_MODE, img.size, completed_proc.stdout)
-    # result = Image.frombytes('RGBA', (snap_w, snap_h), completed_proc.stdout)
-    log.info(f"Received {len(completed_proc.stdout)} bytes from the subprocess "
+    completed = run(args, input=img.tobytes(), stdout=PIPE, check=True)
+    log.info(f"Received {len(completed.stdout)} bytes from the subprocess "
              f"and constructed a {snap_w} x {snap_h} pixel image from them")
-    # Now all that is left is to decide how to proceed with the resulting image:
-    if out_path is not None:
-        log.info(f"Saving resulting image to `{out_path}`...")
-        result.save(out_path)
-        log.info("Image saved successfully")
-    if display:
-        result.show()
+    # TODO: The following line is just for testing purposes!
+    return img_from_bytes(IMAGE_MODE, img.size, completed.stdout)
+    # return img_from_bytes(IMAGE_MODE, (snap_w, snap_h), completed.stdout)
 
 
 def point_as_tuple(input_string: str) -> Tuple[float]:
@@ -117,23 +148,31 @@ def main() -> None:
         description="Project an image onto a 2-sphere and snapshot the result."
     )
     parser.add_argument(
-        INPUT_IMAGE,
+        INPUT_PATH,
         type=Path,
+        nargs='+',
         help="Path to the image file to use for input."
     )
     parser.add_argument(
-        '-o', '--' + OUTPUT_FILE.replace('_', '-'),
+        '-d', '--' + SAVE_DIRECTORY.replace('_', '-'),
         type=Path,
-        help="If passed a path, the resulting image will be saved there. "
+        help="If passed a path, the resulting image(s) will be saved there. "
              "Write permissions are obviously required there. If omitted, "
-             "the result is not saved, but simply displayed on screen."
+             "the results are not saved, but simply displayed on screen."
+    )
+    parser.add_argument(
+        '-f', '--' + OUTPUT_FILE_PREFIX.replace('_', '-'),
+        default=DEFAULT_OUTPUT_FILE_PREFIX,
+        help=f"If the `--{SAVE_DIRECTORY.replace('_', '-')}` option is used, "
+             f"this prefix is added to the input file's name to make the name "
+             f"of the output file. Defaults to `{DEFAULT_OUTPUT_FILE_PREFIX}`."
     )
     parser.add_argument(
         '-D', '--' + NO_DISPLAY.replace('_', '-'),
         action='store_true',
         help=f"If this flag is set, the resulting image will not be displayed "
              f"on screen at the end. This can be useful, if instead of viewing "
-             f"the result directly, the `--{OUTPUT_FILE.replace('_', '-')}` "
+             f"the result directly, the `--{SAVE_DIRECTORY.replace('_', '-')}` "
              f"path is specified for saving the resulting image."
     )
     parser.add_argument(

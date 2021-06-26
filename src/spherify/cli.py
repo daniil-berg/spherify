@@ -111,7 +111,7 @@ def get_arg_parser() -> ArgumentParser:
              "is employed to process all images concurrently. If a lot of high "
              "resolution images need to be processed, running concurrently can "
              "cause memory issues because all input *and* output images will "
-             "be loaded into memory at the same time."
+             "reside in memory at the same time."
     )
     parser.add_argument(
         '-T', '--' + GET_EXEC_TIME.replace('_', '-'),

@@ -5,6 +5,7 @@ from distutils.util import strtobool
 from subprocess import run, PIPE
 from asyncio.subprocess import create_subprocess_shell as async_proc
 import asyncio
+import timeit
 
 from PIL import ImageFile, UnidentifiedImageError
 from PIL.Image import Image, open as img_from_file, frombytes as img_from_bytes
@@ -50,6 +51,7 @@ class Handler:
             if not strtobool(confirmed.lower()):
                 raise AbortExecution
         self.results: List[Optional[Image]] = []
+        self.initialized = timeit.default_timer()
 
     def spherify_all(self) -> None:
         """

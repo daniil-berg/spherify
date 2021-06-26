@@ -7,10 +7,9 @@ from spherify import Handler
 def main() -> None:
     """
     Parse CLI arguments, instantiate handler and run main method.
-    Possibly register and print the execution time.
+    Optionally print the execution time.
     """
     cli_args = get_arg_parser().parse_args()
-    start = timeit.default_timer()
     try:
         handler = Handler(**vars(cli_args))
     except AbortExecution:
@@ -18,7 +17,8 @@ def main() -> None:
         return
     handler.spherify_all()
     if getattr(cli_args, GET_EXEC_TIME):
-        print(f"Execution time: {round(timeit.default_timer() - start, 1)} s")
+        print(f"Execution time: "
+              f"{round(timeit.default_timer() - handler.initialized, 1)} s")
 
 
 if __name__ == '__main__':

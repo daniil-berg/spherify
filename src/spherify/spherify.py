@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional, Awaitable, Iterator
+from typing import List, Tuple, Optional, Callable, Any
 from logging import getLogger, INFO, WARNING, basicConfig as logConfig
 from pathlib import Path
 from distutils.util import strtobool
@@ -57,7 +57,10 @@ class Handler:
         If `display` is `True`, each result is displayed at the end;
         beware that this spawns as many windows as there are transformed images.
         """
-        asyncio.run(self._gather_results())
+        if self.concurrent:
+            asyncio.run(self._gather_results())
+        else:
+            self._gather_results_non_async()
         if self.display:
             for result in self.results:
                 if isinstance(result, Image):
@@ -65,24 +68,25 @@ class Handler:
 
     async def _gather_results(self) -> None:
         """
-        If concurrency is enabled, asynchronously runs the `spherify` coroutines
-        on all the input paths; otherwise consecutively/sequentially runs each
-        `spherify` method.
-        After finishing, the results list contains the `spherify` output for
-        every input path, i.e. either an `Image` object or `None`.
+        Asynchronously runs the `spherify` coroutines on all the input paths.
+        After finishing, the results list contains the result for every
+        input path, i.e. either an `Image` object or `None`.
         """
-        if self.concurrent:
-            self.results = await asyncio.gather(*self._spherify_generator())
-        else:
-            self.results = [await f for f in self._spherify_generator()]
+        self.results = await asyncio.gather(*self.path_iter(self.spherify))
 
-    def _spherify_generator(self) -> Iterator[Awaitable]:
+    def _gather_results_non_async(self) -> None:
         """
-        Produces a `spherify` coroutine for each input path.
+        Consecutively/sequentially runs each `spherify_non_async` method.
+        After finishing, the results list contains the result for every
+        input path, i.e. either an `Image` object or `None`.
+        """
+        self.results = [f for f in self.path_iter(self.spherify_non_async)]
 
+    def path_iter(self, method: Callable) -> Any:
+        """
+        Produces the return value of a function call for each input path.
         If an input path is a directory, a coroutine for each file inside it
         will be produced.
-
         Subdirectories are silently skipped to avoid unknown recursion depth;
         otherwise no file checks are performed here.
         """
@@ -91,7 +95,7 @@ class Handler:
             for file in files:
                 if file.is_dir():
                     continue
-                yield self.spherify(img_path=file)
+                yield method(img_path=file)
 
     async def spherify(self, img_path: Path) -> Optional[Image]:
         """
@@ -103,26 +107,33 @@ class Handler:
         constructed again from the raw bytes received, that are assumed to
         be a multiple of 4 with every 4 bytes representing one RGBA pixel.
         """
-        img = load_image(img_path)
+        img = await load_image(img_path)
         if img is None:
             return
-        stdout, stderr = await self.run_julia_program(img)
+        stdout, stderr = await self.run_julia(img)
         if stderr:
             log.error(f"Julia program exited with an error:\n{stderr.decode()}")
             return
-        log.info(f"Received {len(stdout)} bytes from Julia subprocess")
-        # TODO: The following line is just for testing purposes!
-        result = img_from_bytes(IMG_MODE, img.size, stdout)
-        # result = img_from_bytes(IMG_MODE, (snap_w, snap_h), stdout)
-        log.info(f"Constructed a new {self.snap_w} x {self.snap_h} pixel image")
+        result = self._process_julia_output(stdout, img.size)
         if self.save_dir is not None:
-            out = Path(self.save_dir, self.out_file_prefix + img_path.name)
-            log.info(f"Saving image to `{out}`...")
-            result.save(out)
-            log.info(f"Image saved successfully to `{out}`")
+            await save_image(result, self.get_save_path(img_path))
         return result
 
-    async def run_julia_program(self, img: Image) -> Tuple[bytes, bytes]:
+    def spherify_non_async(self, img_path: Path) -> Optional[Image]:
+        """Same as above, but without async capabilities"""
+        img = load_image_non_async(img_path)
+        if img is None:
+            return
+        stdout, stderr = self.run_julia_non_async(img)
+        if stderr:
+            log.error(f"Julia program exited with an error:\n{stderr.decode()}")
+            return
+        result = self._process_julia_output(stdout, img.size)
+        if self.save_dir is not None:
+            save_image_non_async(result, self.get_save_path(img_path))
+        return result
+
+    async def run_julia(self, img: Image) -> Tuple[bytes, bytes]:
         """
         Launches the Julia script as a subprocess.
 
@@ -134,7 +145,22 @@ class Handler:
 
         We return the subprocess' stdout and stderr after it is finished.
         """
-        args = [
+        args = self.get_julia_command_args(img)
+        cmd = ' '.join(args)
+        log.info(f"Asynchronously launching subprocess: `{cmd}`")
+        proc = await asyncrun(cmd=cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        return await proc.communicate(input=img.tobytes())
+
+    def run_julia_non_async(self, img: Image) -> Tuple[bytes, bytes]:
+        """Same as above, but without async capabilities"""
+        args = self.get_julia_command_args(img)
+        log.info(f"Launching subprocess: `{' '.join(args)}`")
+        complete = run(args, input=img.tobytes(), capture_output=True)
+        return complete.stdout, complete.stderr
+
+    def get_julia_command_args(self, img: Image) -> List[str]:
+        """Returns the Julia command to be run on an image in list format."""
+        return [
             self.julia_binary,
             str(self.julia_script),
             f'{img.width},{img.height}',
@@ -143,18 +169,20 @@ class Handler:
             str(self.sampling_density),
             f'{self.snap_w},{self.snap_h}'
         ]
-        cmd = ' '.join(args)
-        if self.concurrent:
-            log.info(f"Asynchronously launching subprocess: `{cmd}`")
-            proc = await asyncrun(cmd=cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-            return await proc.communicate(input=img.tobytes())
-        else:
-            log.info(f"Launching subprocess: `{cmd}`")
-            complete = run(args, input=img.tobytes(), capture_output=True)
-            return complete.stdout, complete.stderr
+
+    def _process_julia_output(self, stdout: bytes, old_size) -> Image:
+        log.info(f"Received {len(stdout)} bytes from Julia subprocess")
+        # TODO: The following line is just for testing purposes!
+        result = img_from_bytes(IMG_MODE, old_size, stdout)
+        # result = img_from_bytes(IMG_MODE, (snap_w, snap_h), stdout)
+        log.info(f"Constructed a new {self.snap_w} x {self.snap_h} pixel image")
+        return result
+
+    def get_save_path(self, input_path: Path) -> Path:
+        return Path(self.save_dir, self.out_file_prefix + input_path.name)
 
 
-def load_image(img_path: Path) -> Optional[Image]:
+async def load_image(img_path: Path) -> Optional[Image]:
     """
     Attempts to open `img_path` as an image using the PIL package.
     If successful, the image is converted into RGBA mode and returned.
@@ -171,3 +199,31 @@ def load_image(img_path: Path) -> Optional[Image]:
         return
     log.info(f"Image of size {img.width} x {img.height} pixels loaded")
     return img
+
+
+def load_image_non_async(img_path: Path) -> Optional[Image]:
+    """Same as above, but without async capabilities"""
+    log.info(f"Opening `{img_path}` ({img_path.stat().st_size} bytes)")
+    try:
+        with open(img_path, 'rb') as f:
+            img = img_from_file(f).convert(IMG_MODE)
+    except PermissionError:
+        log.error(f"No read permissions for file `{img_path}`; skipping...")
+        return
+    except UnidentifiedImageError:
+        log.warning(f"Could not identify image `{img_path}`; skipping...")
+        return
+    log.info(f"Image of size {img.width} x {img.height} pixels loaded")
+    return img
+
+
+async def save_image(image: Image, target_path: Path) -> None:
+    log.info(f"Saving image to `{target_path}`...")
+    image.save(target_path)
+    log.info(f"Image saved successfully to `{target_path}`")
+
+
+def save_image_non_async(image: Image, target_path: Path) -> None:
+    log.info(f"Saving image to `{target_path}`...")
+    image.save(target_path)
+    log.info(f"Image saved successfully to `{target_path}`")

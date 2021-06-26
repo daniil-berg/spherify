@@ -3,7 +3,7 @@ from logging import getLogger, INFO, WARNING, basicConfig as logConfig
 from pathlib import Path
 from distutils.util import strtobool
 from subprocess import run, PIPE
-from asyncio.subprocess import create_subprocess_shell as asyncrun
+from asyncio.subprocess import create_subprocess_shell as async_proc
 import asyncio
 
 from PIL import ImageFile, UnidentifiedImageError
@@ -148,7 +148,7 @@ class Handler:
         args = self.get_julia_command_args(img)
         cmd = ' '.join(args)
         log.info(f"Asynchronously launching subprocess: `{cmd}`")
-        proc = await asyncrun(cmd=cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        proc = await async_proc(cmd=cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
         return await proc.communicate(input=img.tobytes())
 
     def run_julia_non_async(self, img: Image) -> Tuple[bytes, bytes]:

@@ -116,7 +116,7 @@ class Handler:
         if stderr:
             log.error(f"Julia program exited with an error:\n{stderr.decode()}")
             return
-        result = self._process_julia_output(stdout, img.size)
+        result = self._process_julia_output(stdout)
         if self.save_dir is not None:
             await save_image(result, self.get_save_path(img_path))
         return result
@@ -130,7 +130,7 @@ class Handler:
         if stderr:
             log.error(f"Julia program exited with an error:\n{stderr.decode()}")
             return
-        result = self._process_julia_output(stdout, img.size)
+        result = self._process_julia_output(stdout)
         if self.save_dir is not None:
             save_image_non_async(result, self.get_save_path(img_path))
         return result
@@ -172,11 +172,9 @@ class Handler:
             f'{self.snap_w},{self.snap_h}'
         ]
 
-    def _process_julia_output(self, stdout: bytes, old_size) -> Image:
+    def _process_julia_output(self, stdout: bytes) -> Image:
         log.info(f"Received {len(stdout)} bytes from Julia subprocess")
-        # TODO: The following line is just for testing purposes!
-        result = img_from_bytes(IMG_MODE, old_size, stdout)
-        # result = img_from_bytes(IMG_MODE, (snap_w, snap_h), stdout)
+        result = img_from_bytes(IMG_MODE, (self.snap_w, self.snap_h), stdout)
         log.info(f"Constructed a new {self.snap_w} x {self.snap_h} pixel image")
         return result
 

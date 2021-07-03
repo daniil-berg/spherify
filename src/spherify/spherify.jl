@@ -2,6 +2,14 @@ const dimensions = 3
 const screen_z = 250
 
 
+"""
+Takes a point in 3D space and calculates the position of its "camera" image.
+Returns nothing if the point is outside the camera's field of view.
+
+# 
+- `point::Tuple3{Float32}`: Point in 3D space
+- `screen_size::Tuple2{UInt16}`: Width & height of the snapshot screen
+"""
 function screen_image(point, screen_size)
     w, h = screen_size[1] ÷ 2, screen_size[2] ÷ 2
     # If the point is behind the screen, there can be no image
@@ -10,7 +18,7 @@ function screen_image(point, screen_size)
     end
     # Scale the vector such that it's z-coordinate matches the screen
     scaled = point ./ point[3] .* screen_z
-    # Check that the scaled vector is positioned within the borders of the screen
+    # Ensure the scaled vector is positioned within the borders of the screen
     if -w <= scaled[1] < w && -h <= scaled[2] < h
         return floor(Int32, scaled[1]), floor(Int32, scaled[2])
     end
@@ -18,6 +26,16 @@ function screen_image(point, screen_size)
 end
 
 
+"""
+Determines if a point on a 2-sphere is visible to the "camera".
+
+# 
+- `point::Tuple3{Float32}`: Point on a 2-sphere in 3D space
+- `x::Integer`: Horizontal position/index of the image pixel
+- `center::Tuple3{Float32}`: Center position of the sphere in 3D space
+- `radius::Float32`: Radius of the sphere
+- `screen_size::Tuple2{UInt16}`: Width & height of the snapshot screen
+"""
 function is_visible(point, center, radius, screen_size)
     # Important: We assume the point is on the sphere!
     if isnothing(screen_image(point, screen_size)) return false end
@@ -51,10 +69,10 @@ function is_visible(point, center, radius, screen_size)
     else 
         other_point = point .* s2
     end
-    # We know that the z-coordinate of our `point` is greater than or equal to the 
+    # We know the z-coordinate of our `point` is greater than or equal to the 
     # z-coordinate of the screen, or the function would have returned early on.
     # If the z-coordinate of the `other_point` is in between the two,
-    # it means the `other_point` is on the face of the sphere closer to the screen,
+    # it means the `other_point` is on the sphere's face closer to the screen,
     # so our `point` of interest is *not* visible.
     # Our `point` is only visible either if it is "in front" of the other,
     # or the other is behind the focus point (i.e. camera inside the sphere)
@@ -62,6 +80,19 @@ function is_visible(point, center, radius, screen_size)
 end
 
 
+"""
+Projects a pixel's position from its original 2D image plane 
+onto a 2-sphere in 3D space and returns the new sampled positions.
+
+# 
+- `x::Integer`: Horizontal position/index of the image pixel
+- `y::Integer`: Vertical position/index of the image pixel
+- `w::Integer`: Width of the original image
+- `h::Integer`: Height of the original image
+- `center::Tuple3{Float32}`: Center position of the sphere in 3D space
+- `radius::Float32`: Radius of the sphere
+- `density::Integer`: Sampling density factor
+"""
 function samples(x, y, w, h, center, radius, density)
     theta = x * π/h
     phi = y * 2π/w
@@ -73,16 +104,34 @@ function samples(x, y, w, h, center, radius, density)
 end
 
 
+"""
+Takes RGBA encoded image data, projects it onto a sphere and takes a snapshot.
+
+# Arguments
+- `w::Integer`: Width of the original image
+- `h::Integer`: Height of the original image
+- `data::Array{Array4{UInt8}}`: Image data in a 2D array of integers 0-255
+- `center::Tuple3{Float32}`: Center position of the sphere in 3D space
+- `radius::Float32`: Radius of the sphere
+- `density::Integer`: Sampling density factor
+- `snapshot_size::Tuple2{UInt16}`: Width & height of the snapshot screen
+"""
 function snapshot_sphere(w, h, data, center, radius, density, snapshot_size)
-    # Initialize 2D array of zeros with a length of height * witdth of the snapshot 
-    # in the first dimension and a length of 4 (for RGBA) in the second dimension.
+    # Initialize 2D array with a length of height * witdth of the snapshot in
+    # the first dimension and a length of 4 (for RGBA) in the second dimension.
     snap_w, snap_h = snapshot_size
     screen = zeros(UInt8, (snap_w * snap_h, 4))
-    # Go through each row of the 2D data array, i.e. each pixel
+    # Go through each row of the 2D data array, i.e. each pixel.
     for (i, pixel) in enumerate(eachrow(data))
-        x, y = 1 + (i - 1) % w, 1 + (i - 1) ÷ w
+        # Get the x-y-position of the pixel in the original image.
+        x = 1 + (i - 1) % w
+        y = 1 + (i - 1) ÷ w
+        # Sample the the position onto the sphere.
         points = samples(x, y, w, h, center, radius, density)
         for point in points
+            # If a point on the sphere is visible, get its screen image, 
+            # and save the corresponding pixel value in the screen array 
+            # at the appropriate index.
             if is_visible(point, center, radius, snapshot_size)
                 img_x, img_y = screen_image(point, snapshot_size)
                 idx = img_x + snap_w ÷ 2 + (img_y + snap_h ÷ 2) * snap_w
@@ -93,19 +142,6 @@ function snapshot_sphere(w, h, data, center, radius, density, snapshot_size)
     return screen
 end
 
-
-# "Placeholder..."
-# function snapshot_sphere(w, h, data, center, radius, density, snapshot_size)
-#     # For testing purposes we just color the first 100.000 pixels white
-#     for (i, a) in enumerate(eachrow(data))
-#         a .= 255
-#         if i == 100000
-#             break
-#         end
-#     end
-#     # ...
-#     return data
-# end
 
 """
 Parse and convert command line arguments, read image data, 
@@ -124,7 +160,7 @@ function main()
     center = parse.(Float32, split(ARGS[2], ","))
     radius = parse(Float32, ARGS[3])
     density = parse(Int32, ARGS[4])
-    snapshot_size = parse.(Int32, split(ARGS[5], ","))
+    snap_size = parse.(Int32, split(ARGS[5], ","))
     # Perform sanity checks, starting with the dimensions of the center point:
     if length(center) != dimensions
         error("Center point must be a $dimensions-tuple of numbers")
@@ -147,7 +183,7 @@ function main()
         )
     end
     # Start the calculations:
-    data = snapshot_sphere(w, h, pixels, center, radius, density, snapshot_size)
+    data = snapshot_sphere(w, h, pixels, center, radius, density, snap_size)
     # Return to stdout:
     write(stdout, transpose(data))
 end

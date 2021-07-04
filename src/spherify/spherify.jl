@@ -87,8 +87,8 @@ onto a 2-sphere in 3D space and returns the new sampled positions.
 # 
 - `x::Integer`: Horizontal position/index of the image pixel
 - `y::Integer`: Vertical position/index of the image pixel
-- `w::Integer`: Width of the original image
-- `h::Integer`: Height of the original image
+- `w::Integer`: Width of the original image in pixels
+- `h::Integer`: Height of the original image in pixels
 - `center::Tuple3{Float32}`: Center position of the sphere in 3D space
 - `radius::Float32`: Radius of the sphere
 - `density::Integer`: Sampling density factor

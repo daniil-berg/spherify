@@ -1,7 +1,8 @@
 import timeit
 
-from cli import get_arg_parser, GET_EXEC_TIME, AbortExecution
-from spherify import Handler
+
+from spherify.cli import get_arg_parser, GET_EXEC_TIME, AbortExecution
+from spherify.spherify import Handler
 
 
 def main() -> None:

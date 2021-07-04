@@ -10,7 +10,7 @@ import timeit
 from PIL import ImageFile, UnidentifiedImageError
 from PIL.Image import Image, open as img_from_file, frombytes as img_from_bytes
 
-from cli import *
+from spherify.cli import *
 
 
 log = getLogger(__name__)

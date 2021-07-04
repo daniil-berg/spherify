@@ -37,9 +37,11 @@ Read the help for additional options.
 ### Example
 
 You could pass this test image as input with the options above:
+
 ![example input](test_images/checker.png "Example input")
 
 The output should look something like this:
+
 ![example output](sph_checker.png "Example output")
 
 This transformation may take a few seconds depending on your processor.

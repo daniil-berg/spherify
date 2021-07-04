@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional, Callable, Any
+from typing import List, Tuple, Optional, Callable, Iterator, Any
 from logging import getLogger, INFO, WARNING, basicConfig as logConfig
 from pathlib import Path
 from distutils.util import strtobool
@@ -84,10 +84,10 @@ class Handler:
         """
         self.results = [f for f in self.path_iter(self.spherify_non_async)]
 
-    def path_iter(self, method: Callable) -> Any:
+    def path_iter(self, method: Callable) -> Iterator[Any]:
         """
         Produces the return value of a function call for each input path.
-        If an input path is a directory, a coroutine for each file inside it
+        If an input path is a directory, a return value for each file inside it
         will be produced.
         Subdirectories are silently skipped to avoid unknown recursion depth;
         otherwise no file checks are performed here.

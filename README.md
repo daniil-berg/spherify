@@ -34,6 +34,18 @@ python -m spherify -c 0,0,1000 -r 600 -d . -D path/to/image.png
 ```
 Read the help for additional options.
 
+### Example
+
+You could pass this test image as input with the options above:
+![example input](test_images/checker.png "Example input")
+
+The output should look something like this:
+![example output](sph_checker.png "Example output")
+
+This transformation may take a few seconds depending on your processor.
+Increasing sampling density by using the `-s` option 
+may reduce noise, but takes significantly longer.
+
 ### Caution
 
 This can be run on multiple images **concurrently** (by default). 

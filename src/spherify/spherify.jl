@@ -94,13 +94,28 @@ onto a 2-sphere in 3D space and returns the new sampled positions.
 - `density::Integer`: Sampling density factor
 """
 function samples(x, y, w, h, center, radius, density)
-    theta = x * π/h
-    phi = y * 2π/w
-    return [(
-        center[1] + radius * sin(theta) * cos(phi), 
-        center[2] + radius * sin(theta) * sin(phi), 
-        center[3] + radius * cos(theta)
-    )]
+    if density == 1
+        theta_phi = [(
+            x * π/h,   # index 1 is theta
+            y * 2π/w   # index 2 is phi
+        )]
+    elseif density > 1
+        # Generate a `density x 2`-matrix of random floats in the range [0, 1[:
+        deltas = rand(Float32, density, 2)
+        # Construct an array of theta-phi-tuples with the length of `density`:
+        theta_phi = [ (
+            (x + deltas[i, 1]) * π/h,  # index 1 is theta with random delta from [0, 1[
+            (y + deltas[i, 2]) * 2π/w  # index 2 is phi with random delta from [0, 1[
+        ) for i=1:density ]
+    else
+        error("Invalid sampling density $density. Must be a positive integer.")
+    end
+    # Return the generated point positions on the sphere as an array of 3-tuples:
+    return [ (
+        center[1] + radius * sin(theta_phi[i][1]) * cos(theta_phi[i][2]), 
+        center[2] + radius * sin(theta_phi[i][1]) * sin(theta_phi[i][2]), 
+        center[3] + radius * cos(theta_phi[i][1])
+    ) for i=1:density ]
 end
 
 
